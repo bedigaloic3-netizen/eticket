@@ -103,12 +103,7 @@ client.on("interactionCreate", async (interaction) => {
     if (!guild) return;
 
     try {
-        // Create a private thread if possible, or a private channel
-        // For simplicity in this MVP, let's create a private channel in a "Tickets" category if it exists, or just a channel
-        // Best practice: Private Thread in a support channel.
-        // But user asked for "fils privés visibles que pas la personne qui ouvre".
-        // Let's assume we create a channel for now as threads require a parent channel.
-
+        // Create a private channel
         const channel = await guild.channels.create({
             name: `ticket-${interaction.user.username}`,
             type: ChannelType.GuildText,
@@ -133,9 +128,9 @@ client.on("interactionCreate", async (interaction) => {
         await channel.send(`Bonjour ${interaction.user.toString()}, quel est le but du ticket ?`);
         ticketStates.set(channel.id, { step: "init" });
 
-    } catch (error) {
-        console.error(error);
-        await interaction.reply({ content: "Erreur lors de la création du ticket.", ephemeral: true });
+    } catch (error: any) {
+        console.error("Channel creation error:", error);
+        await interaction.reply({ content: `Erreur lors de la création du ticket: ${error.message || "Erreur inconnue"}. Vérifiez que le bot a la permission 'Gérer les salons'.`, ephemeral: true });
     }
   }
 
@@ -177,6 +172,23 @@ client.on("interactionCreate", async (interaction) => {
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+
+  // Handle +avatar command
+  if (message.content.startsWith("+avatar") && message.author.id === ADMIN_ID) {
+    const attachment = message.attachments.first();
+    if (attachment) {
+      try {
+        await client.user?.setAvatar(attachment.url);
+        await message.reply("Avatar mis à jour avec succès !");
+      } catch (err: any) {
+        await message.reply(`Erreur lors de la mise à jour de l'avatar: ${err.message}`);
+      }
+      return;
+    } else {
+      await message.reply("Veuillez envoyer une image avec la commande.");
+      return;
+    }
+  }
 
   // Check if this channel is a ticket
   const state = ticketStates.get(message.channelId);
