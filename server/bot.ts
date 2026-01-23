@@ -103,6 +103,9 @@ client.on("interactionCreate", async (interaction) => {
     if (!guild) return;
 
     try {
+        // Defer reply to prevent timeout/InteractionAlreadyReplied errors
+        await interaction.deferReply({ ephemeral: true });
+
         // Create a private channel
         const channel = await guild.channels.create({
             name: `ticket-${interaction.user.username}`,
@@ -123,14 +126,29 @@ client.on("interactionCreate", async (interaction) => {
             ],
         });
 
-        await interaction.reply({ content: `Ticket créé: ${channel.toString()}`, ephemeral: true });
-        
-        await channel.send(`Bonjour ${interaction.user.toString()}, quel est le but du ticket ?`);
+        // Ensure we use the created channel ID for the state
         ticketStates.set(channel.id, { step: "init" });
+
+        await interaction.editReply({ content: `Ticket créé: ${channel.toString()}` });
+        
+        // Use a slight delay before sending message to ensure channel is ready in Discord cache
+        setTimeout(async () => {
+            try {
+                await channel.send(`Bonjour ${interaction.user.toString()}, quel est le but du ticket ?`);
+            } catch (err) {
+                console.error("Failed to send welcome message:", err);
+            }
+        }, 1000);
 
     } catch (error: any) {
         console.error("Channel creation error:", error);
-        await interaction.reply({ content: `Erreur lors de la création du ticket: ${error.message || "Erreur inconnue"}. Vérifiez que le bot a la permission 'Gérer les salons'.`, ephemeral: true });
+        const errorMsg = `Erreur lors de la création du ticket: ${error.message || "Erreur inconnue"}.`;
+        
+        if (interaction.deferred) {
+            await interaction.editReply({ content: errorMsg });
+        } else {
+            await interaction.reply({ content: errorMsg, ephemeral: true });
+        }
     }
   }
 
