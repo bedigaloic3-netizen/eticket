@@ -26,7 +26,7 @@ const ticketStates = new Map<string, { step: string; reason?: string }>();
 // Bot customization state
 let botConfig = {
   statusType: ActivityType.Streaming,
-  statusText: "GERE {server_count} serveurs",
+  statusText: "Gère {server_count} serveurs",
 };
 
 client.once("ready", async () => {
@@ -39,7 +39,7 @@ function updateStatus() {
   if (!client.user) return;
   const count = client.guilds.cache.size;
   const text = botConfig.statusText.replace("{server_count}", count.toString());
-  client.user.setActivity(text, { type: botConfig.statusType as any, url: "https://www.twitch.tv/discord" });
+  client.user.setActivity(text, { type: botConfig.statusType as any, url: "https://discord.gg/9sK3YG9aAY" });
 }
 
 async function registerCommands() {
