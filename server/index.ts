@@ -60,6 +60,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Start Discord Bot
+  try {
+    const { startBot } = await import("./bot");
+    startBot();
+  } catch (err) {
+    console.error("Failed to start Discord bot:", err);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
