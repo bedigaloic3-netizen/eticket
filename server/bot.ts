@@ -231,34 +231,59 @@ client.on("messageCreate", async (message) => {
 
   // AI Processing
   try {
+      // Get all channels for the AI to analyze structure if needed
+      const allChannels = message.guild?.channels.cache.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: c.type
+      })) || [];
+
       const messages = [
           { role: "system", content: `
-            Tu es un bot modérateur Discord intelligent. 
-            Ton but est d'aider l'utilisateur ou de gérer des plaintes.
+            Tu es un bot modérateur Discord intelligent et assistant de recrutement. 
+            Ton but est d'aider l'utilisateur, gérer des plaintes, des candidatures ou répondre à des questions sur le serveur.
             
             Contexte actuel:
-            Step: ${state.step}
+            - Étape du ticket: ${state.step}
+            - ID Propriétaire du serveur (Owner): ${message.guild?.ownerId}
+            - Liste des salons du serveur: ${JSON.stringify(allChannels)}
             
-            Règles:
-            1. Si step="init", l'utilisateur vient de donner la raison du ticket. Analyse-la. 
-               - Si c'est une plainte contre quelqu'un, demande des preuves (vidéo, screen).
-               - Si c'est une question, réponds-y.
-            2. Si c'est une plainte et que l'utilisateur envoie des preuves (liens ou attachments), analyse-les (simulé) et décide d'une sanction (Ban, Kick, Mute, Warn) ou Deban.
-            3. Si l'utilisateur demande de supprimer le ticket, confirme et supprime.
+            Règles de comportement:
+            1. **CANDIDATURES** :
+               - Si l'utilisateur exprime vouloir postuler ou demande un rôle :
+                 - Envoie une fiche de recrutement complète avec des questions précises sur son expérience, ses motivations et ses disponibilités.
+                 - Une fois que l'utilisateur a répondu, analyse les réponses.
+                 - Si l'IA juge la candidature excellente : Indique que c'est parfait et mentionne explicitement que tu vas ping l'owner (<@${message.guild?.ownerId}>) pour validation finale.
+                 - Si l'IA juge la candidature insuffisante : Explique poliment pourquoi "ce n'est pas bien" (manque de détails, réponses floues, etc.).
+            
+            2. **QUESTIONS SUR LE SERVEUR** :
+               - Si l'utilisateur demande des raisons de Ban, de Mute ou le fonctionnement du serveur : Réponds de manière claire et informative.
+            
+            3. **AIDE SUR LES SALONS** :
+               - Si l'utilisateur demande où faire quelque chose ou quel est un certain salon :
+                 - Analyse la liste des salons fournie ci-dessus.
+                 - Identifie le salon le plus approprié.
+                 - Rédige la réponse en mentionnant le salon (ex: <#ID_DU_SALON>).
+            
+            4. **PLAINTES** :
+               - Demande des preuves (vidéos, screens) et propose une sanction simulée (Ban, Kick, Mute).
+            
+            5. **SUPPRESSION** :
+               - Si l'utilisateur demande de fermer/supprimer le ticket.
             
             Format de réponse JSON uniquement:
             {
-              "reply": "Ta réponse à l'utilisateur",
-              "action": "NONE" | "BAN" | "KICK" | "MUTE" | "DELETE_TICKET",
-              "targetUser": "username ou ID si sanction",
-              "newStep": "next_step_name"
+              "reply": "Ta réponse textuelle ici",
+              "action": "NONE" | "BAN" | "KICK" | "MUTE" | "DELETE_TICKET" | "PING_OWNER",
+              "targetUser": "ID ou nom si applicable",
+              "newStep": "nom_de_la_nouvelle_etape"
             }
           ` as const },
-          { role: "user", content: `Message de l'utilisateur: "${message.content}". Attachments: ${message.attachments.size}` as const }
+          { role: "user", content: `Message de l'utilisateur: "${message.content}". Attachments: ${message.attachments.size}. UserID: ${message.author.id}` as const }
       ];
 
       const completion = await openai.chat.completions.create({
-          model: "gpt-5.1", // Or use gpt-4o-mini
+          model: "gpt-5.1",
           messages: messages as any,
           response_format: { type: "json_object" }
       });
@@ -279,9 +304,14 @@ client.on("messageCreate", async (message) => {
           await message.channel.send("Suppression du ticket dans 5 secondes...");
           setTimeout(() => message.channel.delete().catch(() => {}), 5000);
       }
+
+      if (result.action === "PING_OWNER") {
+          const ownerId = message.guild?.ownerId;
+          if (ownerId) {
+            await message.channel.send(`[SYSTEM] Candidature validée. Notification envoyée à l'Owner <@${ownerId}>.`);
+          }
+      }
       
-      // Real sanction logic would require parsing user mentions/IDs and having permissions
-      // For MVP, we'll simulate the sanction message
       if (["BAN", "KICK", "MUTE"].includes(result.action)) {
           await message.channel.send(`[SYSTEM] Sanction appliquée: ${result.action} pour ${result.targetUser || "l'utilisateur concerné"}. (Simulation)`);
       }
