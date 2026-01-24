@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits, EmbedBuilder, REST, Routes, ActivityType, TextChannel, ThreadChannel } from "discord.js";
+import { Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits, EmbedBuilder, REST, Routes, ActivityType, TextChannel, ThreadChannel, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
 
 // Initialize OpenAI with Replit AI Integrations
@@ -46,7 +46,12 @@ async function registerCommands() {
   const commands = [
     {
       name: "ticket",
-      description: "Ouvrir un ticket",
+      description: "Envoyer l'embed de création de ticket",
+      options: [
+        { name: "titre", description: "Titre de l'embed", type: 3, required: true },
+        { name: "description", description: "Description de l'embed", type: 3, required: true },
+        { name: "image", description: "URL du thumbnail", type: 3, required: false },
+      ],
     },
     {
       name: "bot",
@@ -95,61 +100,73 @@ async function registerCommands() {
 }
 
 client.on("interactionCreate", async (interaction) => {
+  if (interaction.isButton()) {
+    if (interaction.customId === "create_ticket") {
+      const guild = interaction.guild;
+      if (!guild) return;
+
+      try {
+        await interaction.deferReply({ ephemeral: true });
+
+        const channel = await guild.channels.create({
+          name: `ticket-${interaction.user.username}`,
+          type: ChannelType.GuildText,
+          permissionOverwrites: [
+            { id: guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: interaction.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] },
+            { id: client.user!.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+          ],
+        });
+
+        ticketStates.set(channel.id, { step: "init" });
+        await interaction.editReply({ content: `Ticket créé: ${channel.toString()}` });
+        
+        setTimeout(async () => {
+          try {
+            await channel.send(`Bonjour ${interaction.user.toString()}, quel est le but du ticket ?`);
+          } catch (err) {
+            console.error("Failed to send welcome message:", err);
+          }
+        }, 1000);
+      } catch (error: any) {
+        console.error("Channel creation error:", error);
+        if (interaction.deferred) {
+          await interaction.editReply({ content: `Erreur: ${error.message || "Erreur inconnue"}` });
+        }
+      }
+    }
+    return;
+  }
+
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "ticket") {
-    // Create private thread/channel
-    const guild = interaction.guild;
-    if (!guild) return;
-
-    try {
-        // Defer reply to prevent timeout/InteractionAlreadyReplied errors
-        await interaction.deferReply({ ephemeral: true });
-
-        // Create a private channel
-        const channel = await guild.channels.create({
-            name: `ticket-${interaction.user.username}`,
-            type: ChannelType.GuildText,
-            permissionOverwrites: [
-                {
-                    id: guild.id,
-                    deny: [PermissionFlagsBits.ViewChannel],
-                },
-                {
-                    id: interaction.user.id,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-                },
-                {
-                    id: client.user!.id,
-                    allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages],
-                }
-            ],
-        });
-
-        // Ensure we use the created channel ID for the state
-        ticketStates.set(channel.id, { step: "init" });
-
-        await interaction.editReply({ content: `Ticket créé: ${channel.toString()}` });
-        
-        // Use a slight delay before sending message to ensure channel is ready in Discord cache
-        setTimeout(async () => {
-            try {
-                await channel.send(`Bonjour ${interaction.user.toString()}, quel est le but du ticket ?`);
-            } catch (err) {
-                console.error("Failed to send welcome message:", err);
-            }
-        }, 1000);
-
-    } catch (error: any) {
-        console.error("Channel creation error:", error);
-        const errorMsg = `Erreur lors de la création du ticket: ${error.message || "Erreur inconnue"}.`;
-        
-        if (interaction.deferred) {
-            await interaction.editReply({ content: errorMsg });
-        } else {
-            await interaction.reply({ content: errorMsg, ephemeral: true });
-        }
+    if (interaction.user.id !== ADMIN_ID) {
+      await interaction.reply({ content: "Seul l'administrateur peut configurer l'embed.", ephemeral: true });
+      return;
     }
+
+    const titre = interaction.options.getString("titre", true);
+    const description = interaction.options.getString("description", true);
+    const image = interaction.options.getString("image");
+
+    const embed = new EmbedBuilder()
+      .setTitle(titre)
+      .setDescription(description)
+      .setColor("#2b2d31");
+
+    if (image) embed.setThumbnail(image);
+
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("create_ticket")
+        .setLabel("Ouvrir un ticket")
+        .setEmoji("🎫")
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    await interaction.reply({ content: "Embed envoyé !", ephemeral: true });
+    await interaction.channel?.send({ embeds: [embed], components: [row] });
   }
 
   if (interaction.commandName === "bot") {
