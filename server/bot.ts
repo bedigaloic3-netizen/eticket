@@ -1,5 +1,6 @@
 import { Client, GatewayIntentBits, Partials, ChannelType, PermissionFlagsBits, EmbedBuilder, REST, Routes, ActivityType, TextChannel, ThreadChannel, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import OpenAI from "openai";
+import { storage } from "./storage";
 
 // Initialize OpenAI with Replit AI Integrations
 const openai = new OpenAI({
@@ -13,14 +14,14 @@ const client = new Client({
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
   ],
   partials: [Partials.Channel, Partials.Message, Partials.ThreadMember],
 });
 
 const ADMIN_ID = "1385342457570394187";
 
-// State for tickets (could be in DB, using memory for MVP)
-// Map<ChannelID, TicketState>
+// State for tickets
 const ticketStates = new Map<string, { step: string; reason?: string }>();
 
 // Bot customization state
@@ -33,6 +34,26 @@ client.once("ready", async () => {
   console.log(`Logged in as ${client.user?.tag}!`);
   updateStatus();
   registerCommands();
+});
+
+client.on("guildMemberAdd", async (member) => {
+  const isOwner = member.id === ADMIN_ID;
+  const isStaff = await storage.getStaff(member.id);
+  
+  if (isOwner || isStaff) {
+    const welcomeChannel = member.guild.channels.cache.find(c => 
+      c.name.toLowerCase().includes("discussion") || 
+      c.name.toLowerCase().includes("bienvenue")
+    ) as TextChannel;
+
+    if (welcomeChannel) {
+      const message = isOwner 
+        ? `Bienvenue à mon créateur <@${member.id}> !` 
+        : `Bienvenue à mon staff <@${member.id}> !`;
+      
+      await welcomeChannel.send({ content: `@here ${message}` });
+    }
+  }
 });
 
 function updateStatus() {
@@ -54,25 +75,29 @@ async function registerCommands() {
       ],
     },
     {
+      name: "accès",
+      description: "Donner l'accès staff (Admin seulement)",
+      options: [{ name: "utilisateur", description: "Utilisateur", type: 6, required: true }],
+    },
+    {
+      name: "leave",
+      description: "Retirer l'accès staff (Admin seulement)",
+      options: [{ name: "utilisateur", description: "Utilisateur", type: 6, required: true }],
+    },
+    {
       name: "bot",
       description: "Configurer le bot (Admin seulement)",
       options: [
         {
           name: "setname",
           description: "Changer le nom du bot",
-          type: 1, // Subcommand
+          type: 1,
           options: [{ name: "name", description: "Nouveau nom", type: 3, required: true }],
         },
         {
           name: "setavatar",
           description: "Changer l'avatar du bot",
           type: 1,
-          options: [{ name: "url", description: "URL de l'image", type: 3, required: true }],
-        },
-        {
-          name: "setbanner",
-          description: "Changer la bannière du bot",
-          type: 1, // Subcommand is technically not supported for banner directly via API easily on user accounts, but bots don't have banners in the same way. We'll skip or simulate.
           options: [{ name: "url", description: "URL de l'image", type: 3, required: true }],
         },
         {
@@ -141,8 +166,8 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === "ticket") {
-    if (interaction.user.id !== ADMIN_ID) {
-      await interaction.reply({ content: "Seul l'administrateur peut configurer l'embed.", ephemeral: true });
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({ content: "Vous devez être administrateur pour utiliser cette commande.", ephemeral: true });
       return;
     }
 
@@ -167,6 +192,26 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.reply({ content: "Embed envoyé !", ephemeral: true });
     await interaction.channel?.send({ embeds: [embed], components: [row] });
+  }
+
+  if (interaction.commandName === "accès") {
+    if (interaction.user.id !== ADMIN_ID) {
+      await interaction.reply({ content: "Seul l'administrateur peut utiliser cette commande.", ephemeral: true });
+      return;
+    }
+    const user = interaction.options.getUser("utilisateur", true);
+    await storage.addStaff({ id: user.id, username: user.username });
+    await interaction.reply(`Accès staff accordé à ${user.tag}.`);
+  }
+
+  if (interaction.commandName === "leave") {
+    if (interaction.user.id !== ADMIN_ID) {
+      await interaction.reply({ content: "Seul l'administrateur peut utiliser cette commande.", ephemeral: true });
+      return;
+    }
+    const user = interaction.options.getUser("utilisateur", true);
+    await storage.removeStaff(user.id);
+    await interaction.reply(`Accès staff retiré à ${user.tag}.`);
   }
 
   if (interaction.commandName === "bot") {
@@ -208,6 +253,32 @@ client.on("interactionCreate", async (interaction) => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
+  // Handle +add, +list, +del commands
+  if (message.author.id === ADMIN_ID) {
+    if (message.content.startsWith("+add ")) {
+      const user = message.mentions.users.first();
+      if (user) {
+        await storage.addStaff({ id: user.id, username: user.username });
+        await message.reply(`Staff ajouté: ${user.tag}`);
+      }
+      return;
+    }
+    if (message.content === "+list") {
+      const allStaff = await storage.getAllStaff();
+      const list = allStaff.map(s => `- ${s.username} (${s.id})`).join("\n") || "Aucun staff.";
+      await message.reply(`Liste du staff:\n${list}`);
+      return;
+    }
+    if (message.content.startsWith("+del ")) {
+      const user = message.mentions.users.first();
+      if (user) {
+        await storage.removeStaff(user.id);
+        await message.reply(`Staff retiré: ${user.tag}`);
+      }
+      return;
+    }
+  }
+
   // Handle +avatar command
   if (message.content.startsWith("+avatar") && message.author.id === ADMIN_ID) {
     const attachment = message.attachments.first();
@@ -219,24 +290,18 @@ client.on("messageCreate", async (message) => {
         await message.reply(`Erreur lors de la mise à jour de l'avatar: ${err.message}`);
       }
       return;
-    } else {
-      await message.reply("Veuillez envoyer une image avec la commande.");
-      return;
     }
   }
 
-  // Check if this channel is a ticket
+  // Respond in ANY channel that starts with "ticket"
+  const isTicketChannel = message.channel instanceof TextChannel && message.channel.name.toLowerCase().startsWith("ticket");
   const state = ticketStates.get(message.channelId);
-  if (!state) return; // Not a tracked ticket channel
+  
+  if (!isTicketChannel && !state) return;
 
   // AI Processing
   try {
-      // Get all channels for the AI to analyze structure if needed
-      const allChannels = message.guild?.channels.cache.map(c => ({
-        id: c.id,
-        name: c.name,
-        type: c.type
-      })) || [];
+      const allChannels = message.guild?.channels.cache.map(c => ({ id: c.id, name: c.name, type: c.type })) || [];
 
       const messages = [
           { role: "system", content: `
@@ -244,42 +309,26 @@ client.on("messageCreate", async (message) => {
             Ton but est d'aider l'utilisateur, gérer des plaintes, des candidatures ou répondre à des questions sur le serveur.
             
             Contexte actuel:
-            - Étape du ticket: ${state.step}
-            - ID Propriétaire du serveur (Owner): ${message.guild?.ownerId}
-            - Liste des salons du serveur: ${JSON.stringify(allChannels)}
+            - Étape: ${state?.step || "conversation"}
+            - Owner ID: ${message.guild?.ownerId}
+            - Salons: ${JSON.stringify(allChannels)}
             
-            Règles de comportement:
-            1. **CANDIDATURES** :
-               - Si l'utilisateur exprime vouloir postuler ou demande un rôle :
-                 - Envoie une fiche de recrutement complète avec des questions précises sur son expérience, ses motivations et ses disponibilités.
-                 - Une fois que l'utilisateur a répondu, analyse les réponses.
-                 - Si l'IA juge la candidature excellente : Indique que c'est parfait et mentionne explicitement que tu vas ping l'owner (<@${message.guild?.ownerId}>) pour validation finale.
-                 - Si l'IA juge la candidature insuffisante : Explique poliment pourquoi "ce n'est pas bien" (manque de détails, réponses floues, etc.).
+            Règles:
+            1. **CANDIDATURES** : Demande une fiche complète, analyse. Si top -> ping owner (<@${message.guild?.ownerId}>). Si flop -> explique pourquoi poliment.
+            2. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide.
+            3. **AIDE SALONS** : Indique le bon salon via <#ID>.
+            4. **REPONSE** : Toujours en JSON.
             
-            2. **QUESTIONS SUR LE SERVEUR** :
-               - Si l'utilisateur demande des raisons de Ban, de Mute ou le fonctionnement du serveur : Réponds de manière claire et informative.
-            
-            3. **AIDE SUR LES SALONS** :
-               - Si l'utilisateur demande où faire quelque chose ou quel est un certain salon :
-                 - Analyse la liste des salons fournie ci-dessus.
-                 - Identifie le salon le plus approprié.
-                 - Rédige la réponse en mentionnant le salon (ex: <#ID_DU_SALON>).
-            
-            4. **PLAINTES** :
-               - Demande des preuves (vidéos, screens) et propose une sanction  (Ban, Kick, Mute).
-            
-            5. **SUPPRESSION** :
-               - Si l'utilisateur demande de fermer/supprimer le ticket.
-            
-            Format de réponse JSON uniquement:
+            Format JSON:
             {
-              "reply": "Ta réponse textuelle ici",
+              "reply": "Message",
               "action": "NONE" | "BAN" | "KICK" | "MUTE" | "DELETE_TICKET" | "PING_OWNER",
-              "targetUser": "ID ou nom si applicable",
-              "newStep": "nom_de_la_nouvelle_etape"
+              "targetUserId": "ID de l'utilisateur à sanctionner (souvent ${message.author.id})",
+              "reason": "Raison de la sanction",
+              "newStep": "step"
             }
           ` as const },
-          { role: "user", content: `Message de l'utilisateur: "${message.content}". Attachments: ${message.attachments.size}. UserID: ${message.author.id}` as const }
+          { role: "user", content: `Message: "${message.content}". UserID: ${message.author.id}` as const }
       ];
 
       const completion = await openai.chat.completions.create({
@@ -290,43 +339,39 @@ client.on("messageCreate", async (message) => {
 
       const result = JSON.parse(completion.choices[0]?.message?.content || "{}");
       
-      if (result.reply) {
-          await message.channel.send(result.reply);
-      }
+      if (result.reply) await message.channel.send(result.reply);
 
-      if (result.newStep) {
+      if (result.newStep && state) {
           state.step = result.newStep;
           ticketStates.set(message.channelId, state);
       }
 
-      // Handle actions
-      if (result.action === "DELETE_TICKET") {
-          await message.channel.send("Suppression du ticket dans 5 secondes...");
-          setTimeout(() => message.channel.delete().catch(() => {}), 5000);
-      }
+      // ACTIONS RÉELLES
+      const guild = message.guild;
+      const targetId = result.targetUserId || message.author.id;
+      const member = await guild?.members.fetch(targetId).catch(() => null);
 
-      if (result.action === "PING_OWNER") {
-          const ownerId = message.guild?.ownerId;
-          if (ownerId) {
-            await message.channel.send(`[SYSTEM] Candidature validée. Notification envoyée à l'Owner <@${ownerId}>.`);
-          }
-      }
-      
-      if (["BAN", "KICK", "MUTE"].includes(result.action)) {
-          await message.channel.send(`[SYSTEM] Sanction appliquée: ${result.action} pour ${result.targetUser || "l'utilisateur concerné"}. (Simulation)`);
+      if (result.action === "BAN" && member?.bannable) {
+          await member.ban({ reason: result.reason });
+          await message.channel.send(`[SYSTEM] ${member.user.tag} a été BAN pour: ${result.reason}`);
+      } else if (result.action === "KICK" && member?.kickable) {
+          await member.kick(result.reason);
+          await message.channel.send(`[SYSTEM] ${member.user.tag} a été KICK pour: ${result.reason}`);
+      } else if (result.action === "MUTE" && member?.moderatable) {
+          await member.timeout(24 * 60 * 60 * 1000, result.reason); // 24h
+          await message.channel.send(`[SYSTEM] ${member.user.tag} a été MUTE (24h) pour: ${result.reason}`);
+      } else if (result.action === "DELETE_TICKET") {
+          setTimeout(() => message.channel.delete().catch(() => {}), 5000);
+      } else if (result.action === "PING_OWNER") {
+          await message.channel.send(`Candidature validée. Notification <@${guild?.ownerId}>.`);
       }
 
   } catch (error) {
       console.error("AI Error:", error);
-      await message.channel.send("Une erreur est survenue lors du traitement de votre demande.");
   }
 });
 
-
 export function startBot() {
-    if (!process.env.DISCORD_TOKEN) {
-        console.warn("DISCORD_TOKEN is missing. Bot will not start.");
-        return;
-    }
+    if (!process.env.DISCORD_TOKEN) return;
     client.login(process.env.DISCORD_TOKEN).catch(console.error);
 }
