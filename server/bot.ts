@@ -266,7 +266,7 @@ client.on("messageCreate", async (message) => {
                  - Rédige la réponse en mentionnant le salon (ex: <#ID_DU_SALON>).
             
             4. **PLAINTES** :
-               - Demande des preuves (vidéos, screens) et propose une sanction simulée (Ban, Kick, Mute).
+               - Demande des preuves (vidéos, screens) et propose une sanction  (Ban, Kick, Mute).
             
             5. **SUPPRESSION** :
                - Si l'utilisateur demande de fermer/supprimer le ticket.
