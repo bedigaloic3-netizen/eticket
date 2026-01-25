@@ -195,8 +195,11 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "accès") {
-    if (interaction.user.id !== ADMIN_ID) {
-      await interaction.reply({ content: "Seul l'administrateur peut utiliser cette commande.", ephemeral: true });
+    const isOwner = interaction.user.id === ADMIN_ID;
+    const isStaff = await storage.getStaff(interaction.user.id);
+
+    if (!isOwner && !isStaff) {
+      await interaction.reply({ content: "Seul l'administrateur ou le staff peut utiliser cette commande.", ephemeral: true });
       return;
     }
     const user = interaction.options.getUser("utilisateur", true);
@@ -205,8 +208,11 @@ client.on("interactionCreate", async (interaction) => {
   }
 
   if (interaction.commandName === "leave") {
-    if (interaction.user.id !== ADMIN_ID) {
-      await interaction.reply({ content: "Seul l'administrateur peut utiliser cette commande.", ephemeral: true });
+    const isOwner = interaction.user.id === ADMIN_ID;
+    const isStaff = await storage.getStaff(interaction.user.id);
+
+    if (!isOwner && !isStaff) {
+      await interaction.reply({ content: "Seul l'administrateur ou le staff peut utiliser cette commande.", ephemeral: true });
       return;
     }
     const user = interaction.options.getUser("utilisateur", true);
@@ -302,6 +308,8 @@ client.on("messageCreate", async (message) => {
   // AI Processing
   try {
       const allChannels = message.guild?.channels.cache.map(c => ({ id: c.id, name: c.name, type: c.type })) || [];
+      const allStaffMembers = await storage.getAllStaff();
+      const staffMentions = allStaffMembers.map(s => `<@${s.id}>`).join(", ");
 
       const messages = [
           { role: "system", content: `
@@ -311,19 +319,21 @@ client.on("messageCreate", async (message) => {
             Contexte actuel:
             - Étape: ${state?.step || "conversation"}
             - Owner ID: ${message.guild?.ownerId}
+            - Staff Actuel: ${staffMentions}
             - Salons: ${JSON.stringify(allChannels)}
             
             Règles:
-            1. **CANDIDATURES** : Demande une fiche complète, analyse. Si top -> ping owner (<@${message.guild?.ownerId}>). Si flop -> explique pourquoi poliment.
-            2. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide.
-            3. **AIDE SALONS** : Indique le bon salon via <#ID>.
-            4. **REPONSE** : Toujours en JSON.
+            1. **ACCÈS STAFF** : Les membres du staff ont accès à TOUS les tickets du serveur. Mentionne-les si nécessaire.
+            2. **CANDIDATURES** : Demande une fiche complète, analyse. Si top -> ping owner (<@${message.guild?.ownerId}>). Si flop -> explique pourquoi poliment.
+            3. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide.
+            4. **AIDE SALONS** : Indique le bon salon via <#ID>.
+            5. **REPONSE** : Toujours en JSON.
             
             Format JSON:
             {
               "reply": "Message",
               "action": "NONE" | "BAN" | "KICK" | "MUTE" | "DELETE_TICKET" | "PING_OWNER",
-              "targetUserId": "ID de l'utilisateur à sanctionner (souvent ${message.author.id})",
+              "targetUserId": "ID de l'utilisateur à sanctionner",
               "reason": "Raison de la sanction",
               "newStep": "step"
             }
