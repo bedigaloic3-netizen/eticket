@@ -1,8 +1,7 @@
-import { type User, type InsertUser, type Staff, type InsertStaff } from "@shared/schema";
+import { users, staff, type User, type InsertUser, type Staff, type InsertStaff } from "@shared/schema";
+import { eq } from "drizzle-orm";
+// Fallback to memory storage if db is not yet initialized or missing
 import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;

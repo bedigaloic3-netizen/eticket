@@ -42,8 +42,12 @@ client.on("guildMemberAdd", async (member) => {
   
   if (isOwner || isStaff) {
     const welcomeChannel = member.guild.channels.cache.find(c => 
+      c.type === ChannelType.GuildText && (
       c.name.toLowerCase().includes("discussion") || 
-      c.name.toLowerCase().includes("bienvenue")
+      c.name.toLowerCase().includes("bienvenue") ||
+      c.name.toLowerCase().includes("chat") ||
+      c.name.toLowerCase().includes("général")
+      )
     ) as TextChannel;
 
     if (welcomeChannel) {
@@ -191,7 +195,9 @@ client.on("interactionCreate", async (interaction) => {
     );
 
     await interaction.reply({ content: "Embed envoyé !", ephemeral: true });
-    await interaction.channel?.send({ embeds: [embed], components: [row] });
+    if (interaction.channel && 'send' in interaction.channel) {
+      await (interaction.channel as TextChannel).send({ embeds: [embed], components: [row] });
+    }
   }
 
   if (interaction.commandName === "accès") {
@@ -202,9 +208,25 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Seul l'administrateur ou le staff peut utiliser cette commande.", ephemeral: true });
       return;
     }
+    
     const user = interaction.options.getUser("utilisateur", true);
     await storage.addStaff({ id: user.id, username: user.username });
-    await interaction.reply(`Accès staff accordé à ${user.tag}.`);
+    
+    // Auto-add staff to all existing ticket channels
+    const ticketChannels = interaction.guild?.channels.cache.filter(c => 
+      c.name.toLowerCase().startsWith("ticket") && c.type === ChannelType.GuildText
+    );
+
+    if (ticketChannels) {
+      for (const channel of Array.from(ticketChannels.values())) {
+        await (channel as TextChannel).permissionOverwrites.edit(user.id, {
+          ViewChannel: true,
+          SendMessages: true
+        }).catch(console.error);
+      }
+    }
+
+    await interaction.reply(`Accès staff accordé à ${user.tag} sur tous les tickets.`);
   }
 
   if (interaction.commandName === "leave") {
@@ -215,9 +237,9 @@ client.on("interactionCreate", async (interaction) => {
       await interaction.reply({ content: "Seul l'administrateur ou le staff peut utiliser cette commande.", ephemeral: true });
       return;
     }
-    const user = interaction.options.getUser("utilisateur", true);
-    await storage.removeStaff(user.id);
-    await interaction.reply(`Accès staff retiré à ${user.tag}.`);
+    
+    await interaction.reply({ content: "Le bot va quitter le serveur. Au revoir !" });
+    await interaction.guild?.leave();
   }
 
   if (interaction.commandName === "bot") {
@@ -299,8 +321,8 @@ client.on("messageCreate", async (message) => {
     }
   }
 
-  // Respond in ANY channel that starts with "ticket"
-  const isTicketChannel = message.channel instanceof TextChannel && message.channel.name.toLowerCase().startsWith("ticket");
+  // Respond in ANY channel that contains "ticket"
+  const isTicketChannel = message.channel instanceof TextChannel && message.channel.name.toLowerCase().includes("ticket");
   const state = ticketStates.get(message.channelId);
   
   if (!isTicketChannel && !state) return;
@@ -325,7 +347,7 @@ client.on("messageCreate", async (message) => {
             Règles:
             1. **ACCÈS STAFF** : Les membres du staff ont accès à TOUS les tickets du serveur. Mentionne-les si nécessaire.
             2. **CANDIDATURES** : Demande une fiche complète, analyse. Si top -> ping owner (<@${message.guild?.ownerId}>). Si flop -> explique pourquoi poliment.
-            3. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide.
+            3. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide. PAS BESOIN DE CAPTURES D'ÉCRAN obligatoires, base-toi sur le texte.
             4. **AIDE SALONS** : Indique le bon salon via <#ID>.
             5. **REPONSE** : Toujours en JSON.
             
