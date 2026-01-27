@@ -281,8 +281,39 @@ client.on("interactionCreate", async (interaction) => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // Handle +add, +list, +del commands
-  if (message.author.id === ADMIN_ID) {
+  // Handle +server, +inv, +add, +list, +del commands
+  const isOwner = message.author.id === ADMIN_ID;
+  const isStaff = await storage.getStaff(message.author.id);
+
+  if (isOwner || isStaff) {
+    if (message.content === "+server") {
+      const guilds = client.guilds.cache.map(g => `- ${g.name} (${g.id})`).join("\n") || "Aucun serveur.";
+      await message.reply(`Liste des serveurs :\n${guilds}`);
+      return;
+    }
+    if (message.content.startsWith("+inv ")) {
+      const guildId = message.content.split(" ")[1];
+      const guild = client.guilds.cache.get(guildId);
+      if (!guild) {
+        await message.reply("Serveur introuvable.");
+        return;
+      }
+      try {
+        const channel = guild.channels.cache.find(c => c.type === ChannelType.GuildText) as TextChannel;
+        if (!channel) {
+          await message.reply("Aucun salon textuel trouvé pour créer une invitation.");
+          return;
+        }
+        const invite = await channel.createInvite({ maxAge: 0, maxUses: 0 });
+        await message.reply(`Invitation pour ${guild.name} : ${invite.url}`);
+      } catch (err: any) {
+        await message.reply(`Erreur lors de la création de l'invitation : ${err.message}`);
+      }
+      return;
+    }
+  }
+
+  if (isOwner) {
     if (message.content.startsWith("+add ")) {
       const user = message.mentions.users.first();
       if (user) {
