@@ -364,6 +364,13 @@ client.on("messageCreate", async (message) => {
       const allStaffMembers = await storage.getAllStaff();
       const staffMentions = allStaffMembers.map(s => `<@${s.id}>`).join(", ");
 
+      // Fetch recent messages for context memory
+      const recentMessages = await message.channel.messages.fetch({ limit: 10 });
+      const contextMemory = Array.from(recentMessages.values())
+        .reverse()
+        .map(m => `${m.author.username}: ${m.content}`)
+        .join("\n");
+
       const messages = [
           { role: "system", content: `
             Tu es un bot modérateur Discord intelligent et assistant de recrutement. 
@@ -375,12 +382,15 @@ client.on("messageCreate", async (message) => {
             - Staff Actuel: ${staffMentions}
             - Salons: ${JSON.stringify(allChannels)}
             
+            Mémoire des derniers messages:
+            ${contextMemory}
+            
             Règles:
             1. **ACCÈS STAFF** : Les membres du staff ont accès à TOUS les tickets du serveur. Mentionne-les si nécessaire.
             2. **CANDIDATURES** : Demande une fiche complète, analyse. Si top -> ping owner (<@${message.guild?.ownerId}>). Si flop -> explique pourquoi poliment.
-            3. **SANCTIONS RÉELLES** : Tu décides TOI-MÊME de la sanction. Analyse le message. Si c'est grave (insulte, spam, etc.), choisis BAN, KICK ou MUTE. Ne demande pas, décide. PAS BESOIN DE CAPTURES D'ÉCRAN obligatoires, base-toi sur le texte.
+            3. **SANCTIONS RÉELLES** : Tu es un modérateur autonome. Tu décides TOI-MÊME de la sanction IMMÉDIATE. Analyse le message et l'historique. Si c'est grave (insulte, spam, comportement toxique, etc.), choisis BAN, KICK ou MUTE. Ne demande pas l'avis du staff, AGIS. PAS BESOIN DE CAPTURES D'ÉCRAN, base-toi sur le texte et le contexte.
             4. **AIDE SALONS** : Indique le bon salon via <#ID>.
-            5. **REPONSE** : Toujours en JSON.
+            5. **REPONSE** : Toujours en JSON. Réponds directement à l'utilisateur sans qu'il ait besoin de te solliciter spécifiquement si un message est envoyé dans le ticket.
             
             Format JSON:
             {
@@ -391,7 +401,7 @@ client.on("messageCreate", async (message) => {
               "newStep": "step"
             }
           ` as const },
-          { role: "user", content: `Message: "${message.content}". UserID: ${message.author.id}` as const }
+          { role: "user", content: `Dernier message: "${message.content}". UserID: ${message.author.id}` as const }
       ];
 
       const completion = await openai.chat.completions.create({
