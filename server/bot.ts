@@ -46,7 +46,9 @@ client.on("guildMemberAdd", async (member) => {
       c.name.toLowerCase().includes("discussion") || 
       c.name.toLowerCase().includes("bienvenue") ||
       c.name.toLowerCase().includes("chat") ||
-      c.name.toLowerCase().includes("général")
+      c.name.toLowerCase().includes("général") ||
+      c.name.toLowerCase().includes("invitation") ||
+      c.name.toLowerCase().includes("annonce")
       )
     ) as TextChannel;
 
