@@ -91,6 +91,21 @@ async function registerCommands() {
       options: [{ name: "utilisateur", description: "Utilisateur", type: 6, required: true }],
     },
     {
+      name: "mute",
+      description: "Mute un utilisateur (Staff seulement)",
+      options: [
+        { name: "utilisateur", description: "L'utilisateur à mute", type: 6, required: true },
+        { name: "raison", description: "Raison du mute", type: 3, required: false },
+      ],
+    },
+    {
+      name: "unmute",
+      description: "Unmute un utilisateur (Staff seulement)",
+      options: [
+        { name: "utilisateur", description: "L'utilisateur à unmute", type: 6, required: true },
+      ],
+    },
+    {
       name: "bot",
       description: "Configurer le bot (Admin seulement)",
       options: [
@@ -244,6 +259,41 @@ client.on("interactionCreate", async (interaction) => {
     await interaction.guild?.leave();
   }
 
+  if (interaction.commandName === "mute") {
+    const isOwner = interaction.user.id === ADMIN_ID;
+    const isStaff = await storage.getStaff(interaction.user.id);
+    if (!isOwner && !isStaff) {
+      await interaction.reply({ content: "Seul le staff peut utiliser cette commande.", ephemeral: true });
+      return;
+    }
+    const user = interaction.options.getUser("utilisateur", true);
+    const raison = interaction.options.getString("raison") || "Pas de raison fournie";
+    const member = await interaction.guild?.members.fetch(user.id).catch(() => null);
+    if (member?.moderatable) {
+      await member.timeout(24 * 60 * 60 * 1000, raison);
+      await interaction.reply(`${user.tag} a été mute pour : ${raison}`);
+    } else {
+      await interaction.reply("Je ne peux pas mute cet utilisateur.");
+    }
+  }
+
+  if (interaction.commandName === "unmute") {
+    const isOwner = interaction.user.id === ADMIN_ID;
+    const isStaff = await storage.getStaff(interaction.user.id);
+    if (!isOwner && !isStaff) {
+      await interaction.reply({ content: "Seul le staff peut utiliser cette commande.", ephemeral: true });
+      return;
+    }
+    const user = interaction.options.getUser("utilisateur", true);
+    const member = await interaction.guild?.members.fetch(user.id).catch(() => null);
+    if (member) {
+      await member.timeout(null);
+      await interaction.reply(`${user.tag} a été unmute.`);
+    } else {
+      await interaction.reply("Utilisateur introuvable.");
+    }
+  }
+
   if (interaction.commandName === "bot") {
       if (interaction.user.id !== ADMIN_ID) {
           await interaction.reply({ content: "Vous n'avez pas la permission.", ephemeral: true });
@@ -283,11 +333,41 @@ client.on("interactionCreate", async (interaction) => {
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
 
-  // Handle +server, +inv, +add, +list, +del commands
+  // Handle +server, +inv, +add, +list, +del, +logs commands
   const isOwner = message.author.id === ADMIN_ID;
   const isStaff = await storage.getStaff(message.author.id);
 
   if (isOwner || isStaff) {
+    if (message.content === "+logs") {
+      if (!message.guild) return;
+      if (!message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
+        await message.reply("Seul un administrateur du serveur peut créer le salon des logs.");
+        return;
+      }
+
+      try {
+        const logChannel = await message.guild.channels.create({
+          name: "eticket-logs",
+          type: ChannelType.GuildText,
+          permissionOverwrites: [
+            { id: message.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+            { id: message.author.id, allow: [PermissionFlagsBits.ViewChannel] },
+            { id: client.user!.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages] }
+          ],
+        });
+
+        // Add staff to logs channel
+        const allStaff = await storage.getAllStaff();
+        for (const staffMember of allStaff) {
+          await logChannel.permissionOverwrites.edit(staffMember.id, { ViewChannel: true }).catch(() => {});
+        }
+
+        await message.reply(`Salon des logs créé : ${logChannel.toString()}`);
+      } catch (err: any) {
+        await message.reply(`Erreur lors de la création du salon logs : ${err.message}`);
+      }
+      return;
+    }
     if (message.content === "+server") {
       const guilds = client.guilds.cache.map(g => `- ${g.name} (${g.id})`).join("\n") || "Aucun serveur.";
       await message.reply(`Liste des serveurs :\n${guilds}`);
@@ -426,19 +506,28 @@ client.on("messageCreate", async (message) => {
       const targetId = result.targetUserId || message.author.id;
       const member = await guild?.members.fetch(targetId).catch(() => null);
 
+      let logMsg = "";
       if (result.action === "BAN" && member?.bannable) {
           await member.ban({ reason: result.reason });
+          logMsg = `[BAN] ${member.user.tag} (${member.id}) a été BAN pour : ${result.reason}`;
           await message.channel.send(`[SYSTEM] ${member.user.tag} a été BAN pour: ${result.reason}`);
       } else if (result.action === "KICK" && member?.kickable) {
           await member.kick(result.reason);
+          logMsg = `[KICK] ${member.user.tag} (${member.id}) a été KICK pour : ${result.reason}`;
           await message.channel.send(`[SYSTEM] ${member.user.tag} a été KICK pour: ${result.reason}`);
       } else if (result.action === "MUTE" && member?.moderatable) {
           await member.timeout(24 * 60 * 60 * 1000, result.reason); // 24h
+          logMsg = `[MUTE] ${member.user.tag} (${member.id}) a été MUTE (24h) pour : ${result.reason}`;
           await message.channel.send(`[SYSTEM] ${member.user.tag} a été MUTE (24h) pour: ${result.reason}`);
       } else if (result.action === "DELETE_TICKET") {
           setTimeout(() => message.channel.delete().catch(() => {}), 5000);
       } else if (result.action === "PING_OWNER") {
           await message.channel.send(`Candidature validée. Notification <@${guild?.ownerId}>.`);
+      }
+
+      if (logMsg && guild) {
+        const logChannel = guild.channels.cache.find(c => c.name === "eticket-logs") as TextChannel;
+        if (logChannel) await logChannel.send(logMsg);
       }
 
   } catch (error) {
