@@ -437,7 +437,7 @@ client.on("messageCreate", async (message) => {
       ];
 
       const completion = await openai.chat.completions.create({
-          model: "gpt-5.1",
+          model: "gpt-4o-mini",
           messages: messages as any,
           response_format: { type: "json_object" }
       });
