@@ -91,21 +91,6 @@ async function registerCommands() {
       options: [{ name: "utilisateur", description: "Utilisateur", type: 6, required: true }],
     },
     {
-      name: "mute",
-      description: "Mute un utilisateur (Staff seulement)",
-      options: [
-        { name: "utilisateur", description: "L'utilisateur à mute", type: 6, required: true },
-        { name: "raison", description: "Raison du mute", type: 3, required: false },
-      ],
-    },
-    {
-      name: "unmute",
-      description: "Unmute un utilisateur (Staff seulement)",
-      options: [
-        { name: "utilisateur", description: "L'utilisateur à unmute", type: 6, required: true },
-      ],
-    },
-    {
       name: "bot",
       description: "Configurer le bot (Admin seulement)",
       options: [
@@ -257,41 +242,6 @@ client.on("interactionCreate", async (interaction) => {
     
     await interaction.reply({ content: "Le bot va quitter le serveur. Au revoir !" });
     await interaction.guild?.leave();
-  }
-
-  if (interaction.commandName === "mute") {
-    const isOwner = interaction.user.id === ADMIN_ID;
-    const isStaff = await storage.getStaff(interaction.user.id);
-    if (!isOwner && !isStaff) {
-      await interaction.reply({ content: "Seul le staff peut utiliser cette commande.", ephemeral: true });
-      return;
-    }
-    const user = interaction.options.getUser("utilisateur", true);
-    const raison = interaction.options.getString("raison") || "Pas de raison fournie";
-    const member = await interaction.guild?.members.fetch(user.id).catch(() => null);
-    if (member?.moderatable) {
-      await member.timeout(24 * 60 * 60 * 1000, raison);
-      await interaction.reply(`${user.tag} a été mute pour : ${raison}`);
-    } else {
-      await interaction.reply("Je ne peux pas mute cet utilisateur.");
-    }
-  }
-
-  if (interaction.commandName === "unmute") {
-    const isOwner = interaction.user.id === ADMIN_ID;
-    const isStaff = await storage.getStaff(interaction.user.id);
-    if (!isOwner && !isStaff) {
-      await interaction.reply({ content: "Seul le staff peut utiliser cette commande.", ephemeral: true });
-      return;
-    }
-    const user = interaction.options.getUser("utilisateur", true);
-    const member = await interaction.guild?.members.fetch(user.id).catch(() => null);
-    if (member) {
-      await member.timeout(null);
-      await interaction.reply(`${user.tag} a été unmute.`);
-    } else {
-      await interaction.reply("Utilisateur introuvable.");
-    }
   }
 
   if (interaction.commandName === "bot") {
